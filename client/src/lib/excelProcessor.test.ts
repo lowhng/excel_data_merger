@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mergeHeaders, convertToTableRows, exportToCSV } from './excelProcessor';
+import { mergeHeaders, convertToTableRows, exportToExcel } from './excelProcessor';
 import { UploadedFile, MergedField } from '@/types';
+import { FileRenameSettings } from '@/components/FileRenameSettings';
+import * as XLSX from 'xlsx';
 
 describe('excelProcessor', () => {
   let mockFiles: UploadedFile[];
@@ -139,70 +141,95 @@ describe('excelProcessor', () => {
     });
   });
 
-  describe('exportToCSV', () => {
-    it('should export table rows to CSV format', () => {
+  describe('exportToExcel', () => {
+    const defaultRenameSettings: FileRenameSettings = {
+      enabled: false,
+      mode: 'first',
+      characterCount: 10,
+    };
+
+    it('should export table rows to Excel format', () => {
       const merged = mergeHeaders(mockFiles);
       const rows = convertToTableRows(merged, mockFiles);
-      const csv = exportToCSV(rows, mockFiles);
+      const workbook = exportToExcel(rows, mockFiles, defaultRenameSettings);
 
-      expect(csv).toContain('Fields');
-      expect(csv).toContain('9022P');
-      expect(csv).toContain('9033P');
+      expect(workbook.SheetNames).toContain('Merged Fields');
+      const worksheet = workbook.Sheets['Merged Fields'];
+      expect(worksheet).toBeDefined();
     });
 
-    it('should format CSV with correct headers', () => {
+    it('should format Excel with correct headers', () => {
       const merged = mergeHeaders(mockFiles);
       const rows = convertToTableRows(merged, mockFiles);
-      const csv = exportToCSV(rows, mockFiles);
+      const workbook = exportToExcel(rows, mockFiles, defaultRenameSettings);
 
-      const lines = csv.split('\n');
-      const headerLine = lines[0];
+      const worksheet = workbook.Sheets['Merged Fields'];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-      expect(headerLine).toContain('Fields');
-      expect(headerLine).toContain('9022P');
-      expect(headerLine).toContain('9033P');
+      expect(data[0]).toContain('Fields');
+      expect(data[0]).toContain('9022P');
+      expect(data[0]).toContain('9033P');
     });
 
-    it('should mark fields with x when present', () => {
+    it('should mark fields with checkmark when present', () => {
       const merged = mergeHeaders(mockFiles);
       const rows = convertToTableRows(merged, mockFiles);
-      const csv = exportToCSV(rows, mockFiles);
+      const workbook = exportToExcel(rows, mockFiles, defaultRenameSettings);
 
-      const lines = csv.split('\n');
+      const worksheet = workbook.Sheets['Merged Fields'];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
       // Find the Notification row (should be in both files)
-      const notificationLine = lines.find((line) => line.includes('Notification'));
-      expect(notificationLine).toContain('x');
-
-      // Count x's - should be 2 (one for each file)
-      const xCount = (notificationLine?.match(/x/g) || []).length;
-      expect(xCount).toBe(2);
+      const notificationRow = data.find((row) => row[0] === 'Notification');
+      expect(notificationRow).toBeDefined();
+      expect(notificationRow?.[1]).toBe('✓');
+      expect(notificationRow?.[2]).toBe('✓');
     });
 
     it('should handle empty rows gracefully', () => {
-      const csv = exportToCSV([], mockFiles);
+      const workbook = exportToExcel([], mockFiles, defaultRenameSettings);
 
-      const lines = csv.split('\n');
-      expect(lines[0]).toContain('Fields');
-      expect(lines.length).toBe(1); // Only header
+      const worksheet = workbook.Sheets['Merged Fields'];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      expect(data[0]).toContain('Fields');
+      expect(data.length).toBe(1); // Only header
     });
 
-    it('should properly quote field names with special characters', () => {
-      const specialFiles: UploadedFile[] = [
-        {
-          id: 'file-1',
-          name: 'file1.xlsx',
-          headers: ['Field, with comma', 'Field "with" quotes'],
-          uploadedAt: new Date(),
-        },
-      ];
+    it('should apply rename settings when enabled', () => {
+      const merged = mergeHeaders(mockFiles);
+      const rows = convertToTableRows(merged, mockFiles);
+      const renameSettings: FileRenameSettings = {
+        enabled: true,
+        mode: 'first',
+        characterCount: 3,
+      };
+      const workbook = exportToExcel(rows, mockFiles, renameSettings);
 
-      const merged = mergeHeaders(specialFiles);
-      const rows = convertToTableRows(merged, specialFiles);
-      const csv = exportToCSV(rows, specialFiles);
+      const worksheet = workbook.Sheets['Merged Fields'];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-      expect(csv).toContain('"Field, with comma"');
-      expect(csv).toContain('"Field "with" quotes"');
+      // Headers should be shortened to first 3 characters
+      expect(data[0]).toContain('902');
+      expect(data[0]).toContain('903');
+    });
+
+    it('should handle last character mode in rename settings', () => {
+      const merged = mergeHeaders(mockFiles);
+      const rows = convertToTableRows(merged, mockFiles);
+      const renameSettings: FileRenameSettings = {
+        enabled: true,
+        mode: 'last',
+        characterCount: 3,
+      };
+      const workbook = exportToExcel(rows, mockFiles, renameSettings);
+
+      const worksheet = workbook.Sheets['Merged Fields'];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      // Headers should be shortened to last 3 characters
+      expect(data[0]).toContain('22P');
+      expect(data[0]).toContain('33P');
     });
   });
 
@@ -210,14 +237,20 @@ describe('excelProcessor', () => {
     it('should handle complete workflow: merge -> convert -> export', () => {
       const merged = mergeHeaders(mockFiles);
       const rows = convertToTableRows(merged, mockFiles);
-      const csv = exportToCSV(rows, mockFiles);
+      const defaultRenameSettings: FileRenameSettings = {
+        enabled: false,
+        mode: 'first',
+        characterCount: 10,
+      };
+      const workbook = exportToExcel(rows, mockFiles, defaultRenameSettings);
 
       expect(merged.length).toBeGreaterThan(0);
       expect(rows.length).toBe(merged.length);
-      expect(csv.length).toBeGreaterThan(0);
+      expect(workbook.SheetNames.length).toBeGreaterThan(0);
 
-      const lines = csv.split('\n');
-      expect(lines.length).toBe(merged.length + 1); // +1 for header
+      const worksheet = workbook.Sheets['Merged Fields'];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      expect(data.length).toBe(merged.length + 1); // +1 for header
     });
 
     it('should preserve field order from first file', () => {

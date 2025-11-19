@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { UploadedFile, MergedField, TableRow } from '@/types';
+import { FileRenameSettings } from '@/components/FileRenameSettings';
 
 /**
  * Parse an Excel file and extract headers from the first row
@@ -111,35 +112,122 @@ export function convertToTableRows(
 }
 
 /**
- * Export table data to CSV format
+ * Apply rename settings to file names (same logic as MergedFieldsTable)
  */
-export function exportToCSV(
-  tableRows: TableRow[],
-  uploadedFiles: UploadedFile[]
-): string {
-  // Create header row
-  const headers = ['Fields', ...uploadedFiles.map((f) => f.name.replace(/\.xlsx?$/i, ''))];
-  const csvLines = [headers.map((h) => `"${h}"`).join(',')];
+function applyRenameSettings(
+  uploadedFiles: UploadedFile[],
+  renameSettings: FileRenameSettings
+): string[] {
+  // Get base names (without extension)
+  const baseNames = uploadedFiles.map((file) =>
+    file.name.replace(/\.xlsx?$/i, '')
+  );
 
-  // Add data rows
-  tableRows.forEach((row) => {
-    const values = [
-      `"${row.fieldName}"`,
-      ...uploadedFiles.map((file) => {
-        return row[file.id] ? 'x' : '';
-      }),
-    ];
-    csvLines.push(values.join(','));
+  // Apply rename logic if enabled
+  let displayNames: string[];
+  if (renameSettings.enabled) {
+    displayNames = baseNames.map((name) => {
+      const { mode, characterCount } = renameSettings;
+      if (mode === 'first') {
+        return name.substring(0, characterCount);
+      } else {
+        // Last characters
+        return name.length > characterCount
+          ? name.substring(name.length - characterCount)
+          : name;
+      }
+    });
+  } else {
+    displayNames = baseNames;
+  }
+
+  // Handle duplicates by appending numbers
+  const finalNames = displayNames.map((name, index) => {
+    if (!renameSettings.enabled) {
+      // When not renaming, use original name
+      return name;
+    }
+
+    // Check how many files before this one have the same display name
+    let duplicateCount = 0;
+    for (let i = 0; i < index; i++) {
+      if (displayNames[i] === name) {
+        duplicateCount++;
+      }
+    }
+
+    // If this is a duplicate, append a number
+    if (duplicateCount > 0) {
+      return `${name} (${duplicateCount + 1})`;
+    }
+
+    return name;
   });
 
-  return csvLines.join('\n');
+  return finalNames;
 }
 
 /**
- * Download CSV file to user's device
+ * Export table data to Excel format
  */
-export function downloadCSV(csvContent: string, filename: string = 'merged_fields.csv'): void {
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+export function exportToExcel(
+  tableRows: TableRow[],
+  uploadedFiles: UploadedFile[],
+  renameSettings: FileRenameSettings
+): XLSX.WorkBook {
+  // Get column names with rename settings applied
+  const columnNames = applyRenameSettings(uploadedFiles, renameSettings);
+
+  // Create header row
+  const headers = ['Fields', ...columnNames];
+
+  // Create data rows
+  const data = tableRows.map((row) => {
+    return [
+      row.fieldName,
+      ...uploadedFiles.map((file) => {
+        return row[file.id] ? '✓' : '';
+      }),
+    ];
+  });
+
+  // Combine headers and data
+  const worksheetData = [headers, ...data];
+
+  // Create worksheet
+  const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+
+  // Set column widths
+  const colWidths = [
+    { wch: 30 }, // Fields column
+    ...columnNames.map(() => ({ wch: 15 })), // File columns
+  ];
+  worksheet['!cols'] = colWidths;
+
+  // Create workbook
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Merged Fields');
+
+  return workbook;
+}
+
+/**
+ * Download Excel file to user's device
+ */
+export function downloadExcel(
+  workbook: XLSX.WorkBook,
+  filename: string = 'merged_fields.xlsx'
+): void {
+  // Write workbook to buffer
+  const excelBuffer = XLSX.write(workbook, {
+    type: 'array',
+    bookType: 'xlsx',
+  });
+
+  // Create blob and download
+  const blob = new Blob([excelBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   const link = document.createElement('a');
   const url = URL.createObjectURL(blob);
 

@@ -4,9 +4,11 @@ import {
   parseExcelFile,
   mergeHeaders,
   convertToTableRows,
-  exportToCSV,
-  downloadCSV,
+  exportToExcel,
+  downloadExcel,
 } from '@/lib/excelProcessor';
+import { FileRenameSettings } from '@/components/FileRenameSettings';
+import { FilterSettings } from '@/components/FilterControls';
 
 export function useExcelProcessor() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -89,20 +91,115 @@ export function useExcelProcessor() {
     [uploadedFiles]
   );
 
-  const handleExportCSV = useCallback(() => {
-    if (tableRows.length === 0) {
-      setError('No data to export');
-      return;
-    }
+  const handleExportExcel = useCallback(
+    (renameSettings: FileRenameSettings, filterSettings: FilterSettings) => {
+      if (tableRows.length === 0) {
+        setError('No data to export');
+        return;
+      }
 
-    try {
-      const csvContent = exportToCSV(tableRows, uploadedFiles);
-      downloadCSV(csvContent);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to export CSV';
-      setError(errorMessage);
-    }
-  }, [tableRows, uploadedFiles]);
+      try {
+        // Filter files based on selected file IDs
+        let filesToExport = uploadedFiles;
+        if (filterSettings.selectedFileIds.size > 0) {
+          filesToExport = uploadedFiles.filter((file) =>
+            filterSettings.selectedFileIds.has(file.id)
+          );
+        }
+
+        // Sort files based on sort setting
+        const sortType = filterSettings.fileSort || 'none';
+        if (sortType !== 'none') {
+          filesToExport = [...filesToExport].sort((a, b) => {
+            const nameA = a.name.toLowerCase();
+            const nameB = b.name.toLowerCase();
+            if (sortType === 'name-asc') {
+              return nameA.localeCompare(nameB);
+            } else {
+              return nameB.localeCompare(nameA);
+            }
+          });
+        }
+
+        // Filter table rows based on filter settings (same logic as MergedFieldsTable)
+        let filteredRows = tableRows;
+
+        // Filter by field name search
+        if (filterSettings.fieldNameSearch.trim() !== '') {
+          const searchLower = filterSettings.fieldNameSearch.toLowerCase().trim();
+          filteredRows = filteredRows.filter((row) =>
+            row.fieldName.toLowerCase().includes(searchLower)
+          );
+        }
+
+        // Filter by field presence
+        if (filterSettings.selectedFileIds.size > 0) {
+          const selectedFileIdsArray = Array.from(filterSettings.selectedFileIds);
+
+          filteredRows = filteredRows.filter((row) => {
+            // Count how many selected files have this field
+            const presentCount = selectedFileIdsArray.filter(
+              (fileId) => row[fileId] === true
+            ).length;
+
+            // Hide fields not present in any selected file
+            if (presentCount === 0) {
+              return false;
+            }
+
+            // Apply presence filter
+            switch (filterSettings.fieldPresenceFilter) {
+              case 'all-selected':
+                return presentCount === selectedFileIdsArray.length;
+              case 'any-selected':
+                return presentCount > 0;
+              case 'exactly':
+                return (
+                  presentCount === (filterSettings.exactCount || 1)
+                );
+              case 'all':
+              default:
+                return true;
+            }
+          });
+        } else {
+          // If no files selected, apply presence filter to all files
+          switch (filterSettings.fieldPresenceFilter) {
+            case 'all-selected':
+              filteredRows = filteredRows.filter((row) => {
+                const presentCount = uploadedFiles.filter(
+                  (file) => row[file.id] === true
+                ).length;
+                return presentCount === uploadedFiles.length;
+              });
+              break;
+            case 'any-selected':
+              // Show all fields (already filtered by selected files)
+              break;
+            case 'exactly':
+              filteredRows = filteredRows.filter((row) => {
+                const presentCount = uploadedFiles.filter(
+                  (file) => row[file.id] === true
+                ).length;
+                return presentCount === (filterSettings.exactCount || 1);
+              });
+              break;
+            case 'all':
+            default:
+              // Show all fields
+              break;
+          }
+        }
+
+        const workbook = exportToExcel(filteredRows, filesToExport, renameSettings);
+        downloadExcel(workbook);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to export Excel';
+        setError(errorMessage);
+      }
+    },
+    [tableRows, uploadedFiles]
+  );
 
   const clearAll = useCallback(() => {
     setUploadedFiles([]);
@@ -119,7 +216,7 @@ export function useExcelProcessor() {
     error,
     handleFileUpload,
     removeFile,
-    handleExportCSV,
+    handleExportExcel,
     clearAll,
     setError,
   };
