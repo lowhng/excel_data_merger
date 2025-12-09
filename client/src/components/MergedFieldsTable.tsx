@@ -7,16 +7,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { UploadedFile, TableRow as TableRowType } from '@/types';
+import { UploadedFile, TableRow as TableRowType, PathFilterSettings } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { FileRenameSettings } from './FileRenameSettings';
 import { FilterSettings } from './FilterControls';
+import { ChevronRight, ChevronDown, Maximize2, Minimize2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface MergedFieldsTableProps {
   tableRows: TableRowType[];
   uploadedFiles: UploadedFile[];
   renameSettings: FileRenameSettings;
   filterSettings: FilterSettings;
+  pathFilterSettings: PathFilterSettings;
+  onPathFilterSettingsChange?: (settings: PathFilterSettings) => void;
 }
 
 export default function MergedFieldsTable({
@@ -24,6 +28,8 @@ export default function MergedFieldsTable({
   uploadedFiles,
   renameSettings,
   filterSettings,
+  pathFilterSettings,
+  onPathFilterSettingsChange,
 }: MergedFieldsTableProps) {
   const [firstColumnWidth, setFirstColumnWidth] = useState(300);
   const resizeRef = useRef<HTMLDivElement>(null);
@@ -57,6 +63,172 @@ export default function MergedFieldsTable({
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }, [firstColumnWidth, handleMouseMove, handleMouseUp]);
+
+  // Helper function to get path prefix up to a certain depth
+
+  // depth parameter is 1-based (depth 1 = first segment, depth 2 = first two segments, etc.)
+  const getPathPrefix = (segments: string[] | undefined, depth: number): string | null => {
+    if (!segments || segments.length === 0) return null;
+    if (depth <= 0 || depth > segments.length) return null;
+    return segments.slice(0, depth).join(' > ');
+  };
+
+  // Helper function to check if a row should be visible based on depth and expanded paths
+  // Depth filtering works automatically when paths exist, regardless of enabled flag
+  const isRowVisible = useCallback((row: TableRowType): boolean => {
+    // Get path segments - use existing pathSegments or try parsing from fieldName
+    let pathSegments = row.pathSegments;
+    if (!pathSegments || pathSegments.length === 0) {
+      // Try parsing from field name if pathSegments aren't set
+      if (row.fieldName && row.fieldName.includes(' > ')) {
+        pathSegments = row.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+      } else {
+        // No path segments at all, always show
+        return true;
+      }
+    }
+
+    // If still no segments after parsing, show the row
+    if (!pathSegments || pathSegments.length === 0) {
+      return true;
+    }
+
+    const depth = pathSegments.length;
+    const maxDepth = pathFilterSettings.maxDepth ?? 2;
+
+    // Always show rows at or below maxDepth
+    if (depth <= maxDepth) {
+      return true;
+    }
+
+    // For deeper rows, check if all ancestors from maxDepth to depth-1 are expanded
+    // For a row at depth N, we need to check paths at depths maxDepth, maxDepth+1, ..., N-1
+    for (let i = maxDepth; i < depth; i++) {
+      const ancestorPrefix = getPathPrefix(pathSegments, i);
+      if (!ancestorPrefix || !pathFilterSettings.expandedPaths.has(ancestorPrefix)) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [pathFilterSettings]);
+
+  // Helper function to check if a row has children (deeper paths with same prefix)
+  const hasChildren = useCallback((row: TableRowType, allRows: TableRowType[]): boolean => {
+    // Get path segments for this row
+    let pathSegments = row.pathSegments;
+    if (!pathSegments || pathSegments.length === 0) {
+      if (row.fieldName && row.fieldName.includes(' > ')) {
+        pathSegments = row.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+      } else {
+        return false;
+      }
+    }
+    
+    if (!pathSegments || pathSegments.length === 0) return false;
+    
+    const currentPath = pathSegments.join(' > ');
+    return allRows.some(otherRow => {
+      // Get path segments for other row
+      let otherPathSegments = otherRow.pathSegments;
+      if (!otherPathSegments || otherPathSegments.length === 0) {
+        if (otherRow.fieldName && otherRow.fieldName.includes(' > ')) {
+          otherPathSegments = otherRow.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+        } else {
+          return false;
+        }
+      }
+      
+      if (!otherPathSegments || otherPathSegments.length === 0) return false;
+      const otherPath = otherPathSegments.join(' > ');
+      return otherPath.startsWith(currentPath + ' > ');
+    });
+  }, []);
+
+  // Helper function to toggle path expansion
+  const togglePathExpansion = useCallback((path: string) => {
+    if (!onPathFilterSettingsChange) return;
+    
+    const newExpandedPaths = new Set(pathFilterSettings.expandedPaths);
+    if (newExpandedPaths.has(path)) {
+      newExpandedPaths.delete(path);
+    } else {
+      newExpandedPaths.add(path);
+    }
+    
+    onPathFilterSettingsChange({
+      ...pathFilterSettings,
+      expandedPaths: newExpandedPaths,
+    });
+  }, [pathFilterSettings, onPathFilterSettingsChange]);
+
+  // Helper function to expand all paths
+  const expandAllPaths = useCallback(() => {
+    if (!onPathFilterSettingsChange) return;
+    
+    // Get all unique path prefixes from all rows
+    const allPaths = new Set<string>();
+    tableRows.forEach(row => {
+      let pathSegments = row.pathSegments;
+      if (!pathSegments || pathSegments.length === 0) {
+        if (row.fieldName && row.fieldName.includes(' > ')) {
+          pathSegments = row.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+        }
+      }
+      
+      if (pathSegments && pathSegments.length > 0) {
+        const maxDepth = pathFilterSettings.maxDepth ?? 2;
+        // Add all path prefixes from maxDepth to the full depth
+        for (let depth = maxDepth; depth <= pathSegments.length; depth++) {
+          const prefix = pathSegments.slice(0, depth).join(' > ');
+          allPaths.add(prefix);
+        }
+      }
+    });
+    
+    onPathFilterSettingsChange({
+      ...pathFilterSettings,
+      expandedPaths: allPaths,
+    });
+  }, [tableRows, pathFilterSettings, onPathFilterSettingsChange]);
+
+  // Helper function to collapse all paths
+  const collapseAllPaths = useCallback(() => {
+    if (!onPathFilterSettingsChange) return;
+    
+    onPathFilterSettingsChange({
+      ...pathFilterSettings,
+      expandedPaths: new Set(),
+    });
+  }, [pathFilterSettings, onPathFilterSettingsChange]);
+
+  // Check if all paths are expanded
+  const areAllPathsExpanded = useMemo(() => {
+    if (!pathFilterSettings.enabled) return false;
+    
+    const maxDepth = pathFilterSettings.maxDepth ?? 2;
+    const allPaths = new Set<string>();
+    
+    tableRows.forEach(row => {
+      let pathSegments = row.pathSegments;
+      if (!pathSegments || pathSegments.length === 0) {
+        if (row.fieldName && row.fieldName.includes(' > ')) {
+          pathSegments = row.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+        }
+      }
+      
+      if (pathSegments && pathSegments.length > maxDepth) {
+        for (let depth = maxDepth; depth < pathSegments.length; depth++) {
+          const prefix = pathSegments.slice(0, depth).join(' > ');
+          allPaths.add(prefix);
+        }
+      }
+    });
+    
+    // Check if all required paths are expanded
+    if (allPaths.size === 0) return false;
+    return Array.from(allPaths).every(path => pathFilterSettings.expandedPaths.has(path));
+  }, [tableRows, pathFilterSettings]);
 
   // Filter and sort files based on selected file IDs and sort setting
   const visibleFiles = useMemo(() => {
@@ -214,11 +386,49 @@ export default function MergedFieldsTable({
       }
     }
 
+    // Filter by hidden path prefixes if path filtering is enabled
+    if (pathFilterSettings.enabled && pathFilterSettings.hiddenSegments.size > 0) {
+      filtered = filtered.filter((row) => {
+        // If field has no path segments, show it
+        let pathSegments = row.pathSegments;
+        if (!pathSegments || pathSegments.length === 0) {
+          if (row.fieldName && row.fieldName.includes(' > ')) {
+            pathSegments = row.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+          } else {
+            return true;
+          }
+        }
+        
+        if (!pathSegments || pathSegments.length === 0) {
+          return true;
+        }
+        
+        // Check if any path prefix (at any depth) of this row matches a hidden prefix
+        // For example, if "RefOrderDetail > Notification" is hidden, hide all fields
+        // that start with that path (e.g., "RefOrderDetail > Notification > Items")
+        const rowPath = pathSegments.join(' > ');
+        const hasHiddenPrefix = Array.from(pathFilterSettings.hiddenSegments).some(hiddenPrefix => {
+          // Check if the row's path starts with the hidden prefix, or if they match exactly
+          return rowPath === hiddenPrefix || rowPath.startsWith(hiddenPrefix + ' > ');
+        });
+        
+        return !hasHiddenPrefix;
+      });
+    }
+
+    // Depth filtering only applies when path filtering is enabled
+    // When enabled, rows without pathSegments will always pass (shown), rows with paths will be filtered by depth
+    if (pathFilterSettings.enabled) {
+      filtered = filtered.filter((row) => isRowVisible(row));
+    }
+
     return filtered;
   }, [
     tableRows,
     filterSettings,
     uploadedFiles,
+    pathFilterSettings,
+    isRowVisible,
   ]);
 
   if (tableRows.length === 0) {
@@ -249,6 +459,28 @@ export default function MergedFieldsTable({
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {pathFilterSettings.enabled && (
+        <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={areAllPathsExpanded ? collapseAllPaths : expandAllPaths}
+            className="h-7 text-xs gap-1.5"
+          >
+            {areAllPathsExpanded ? (
+              <>
+                <Minimize2 className="h-3 w-3" />
+                Collapse All
+              </>
+            ) : (
+              <>
+                <Maximize2 className="h-3 w-3" />
+                Expand All
+              </>
+            )}
+          </Button>
+        </div>
+      )}
       <div className="flex-1 overflow-auto">
         <Table>
           <TableHeader>
@@ -293,6 +525,30 @@ export default function MergedFieldsTable({
               const isEven = index % 2 === 0;
               // Count how many visible files have this field
               const presentCount = fileColumns.filter((col) => row[col.id] === true).length;
+              
+              // Determine depth and if row has children
+              // Get path segments - use existing or parse from fieldName
+              let pathSegmentsForDisplay = row.pathSegments;
+              if (!pathSegmentsForDisplay || pathSegmentsForDisplay.length === 0) {
+                if (row.fieldName && row.fieldName.includes(' > ')) {
+                  pathSegmentsForDisplay = row.fieldName.split(' > ').map(s => s.trim()).filter(Boolean);
+                }
+              }
+              const depth = pathSegmentsForDisplay?.length ?? 0;
+              const hasRowChildren = hasChildren(row, tableRows);
+              const maxDepth = pathFilterSettings.maxDepth ?? 2;
+              
+              // Get the current path to check if it's expanded (for expand/collapse button)
+              const currentPath = pathSegmentsForDisplay ? pathSegmentsForDisplay.join(' > ') : null;
+              const isExpanded = currentPath ? pathFilterSettings.expandedPaths.has(currentPath) : false;
+              
+              // Calculate indentation based on depth (always show when paths exist)
+              // Indent based on actual depth to show hierarchy clearly
+              const indentLevel = depth > 0 ? depth - 1 : 0;
+              
+              // Show expand/collapse button if row has children (always show when paths exist)
+              const showExpandButton = hasRowChildren;
+              
               return (
                 <TableRow
                   key={index}
@@ -308,8 +564,29 @@ export default function MergedFieldsTable({
                       } : {})
                     }}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="truncate">{row.fieldName}</span>
+                    <div className="flex items-center gap-2" style={{ paddingLeft: `${indentLevel * 20}px` }}>
+                      {showExpandButton ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 hover:bg-transparent"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (currentPath) {
+                              togglePathExpansion(currentPath);
+                            }
+                          }}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : (
+                        <div className="w-5" /> // Spacer for alignment
+                      )}
+                      <span className="truncate flex-1">{row.fieldName}</span>
                       <Badge
                         variant="secondary"
                         className="text-xs whitespace-nowrap"

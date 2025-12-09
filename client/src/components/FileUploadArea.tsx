@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react';
-import { Upload, X, Folder } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { UploadedFile } from '@/types';
+import { UploadedFile, HeaderOrientation } from '@/types';
 
 interface FileUploadAreaProps {
   onFilesSelected: (files: FileList) => void;
   uploadedFiles: UploadedFile[];
   onRemoveFile: (fileId: string) => void;
   isLoading: boolean;
+  headerOrientation: HeaderOrientation;
 }
 
 // Helper function to filter Excel files from a FileList
@@ -34,6 +35,7 @@ export default function FileUploadArea({
   uploadedFiles,
   onRemoveFile,
   isLoading,
+  headerOrientation,
 }: FileUploadAreaProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -105,11 +107,6 @@ export default function FileUploadArea({
 
   const handleClick = () => {
     fileInputRef.current?.click();
-  };
-
-  const handleFolderClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    folderInputRef.current?.click();
   };
 
   // Recursively traverse directory entries and collect Excel files
@@ -217,30 +214,6 @@ export default function FileUploadArea({
               or click to select files
             </p>
           </div>
-          <div className="flex gap-2 mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleClick}
-              disabled={isLoading}
-              className="gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Select Files
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleFolderClick}
-              disabled={isLoading}
-              className="gap-2"
-            >
-              <Folder className="w-4 h-4" />
-              Select Folder
-            </Button>
-          </div>
         </div>
       </div>
 
@@ -261,7 +234,7 @@ export default function FileUploadArea({
                     {file.name}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {file.headers.length} columns
+                    {file.headers.length} {headerOrientation === 'horizontal' ? 'columns' : 'rows'}
                   </p>
                 </div>
                 <Button

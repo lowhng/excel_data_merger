@@ -1,13 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Download, Trash2, Shield } from 'lucide-react';
+import { AlertCircle, Download, Trash2, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import FileUploadArea from '@/components/FileUploadArea';
 import MergedFieldsTable from '@/components/MergedFieldsTable';
 import FileRenameSettingsDialog, {
   FileRenameSettings,
 } from '@/components/FileRenameSettings';
 import FilterControls, { FilterSettings } from '@/components/FilterControls';
+import HeaderOrientationToggle from '@/components/HeaderOrientationToggle';
+import SheetSelector from '@/components/SheetSelector';
+import PathFilterControls from '@/components/PathFilterControls';
+import { PathFilterSettings } from '@/types';
 import { useExcelProcessor } from '@/hooks/useExcelProcessor';
 
 export default function Home() {
@@ -16,11 +25,17 @@ export default function Home() {
     tableRows,
     isLoading,
     error,
+    headerOrientation,
+    selectedSheetIndex,
+    selectedSheetName,
+    sheetNameWarning,
     handleFileUpload,
     removeFile,
     handleExportExcel,
     clearAll,
     setError,
+    changeHeaderOrientation,
+    changeSheetIndex,
   } = useExcelProcessor();
 
   const [showSuccess, setShowSuccess] = useState(false);
@@ -29,6 +44,8 @@ export default function Home() {
     mode: 'first',
     characterCount: 10,
   });
+  const [isSettingsCardOpen, setIsSettingsCardOpen] = useState(false);
+  const [isFiltersCardOpen, setIsFiltersCardOpen] = useState(false);
 
   // Initialize filter settings with all files selected
   const [filterSettings, setFilterSettings] = useState<FilterSettings>(() => ({
@@ -37,6 +54,14 @@ export default function Home() {
     fieldPresenceFilter: 'all',
     exactCount: undefined,
     fileSort: 'none',
+  }));
+
+  // Initialize path filter settings
+  const [pathFilterSettings, setPathFilterSettings] = useState<PathFilterSettings>(() => ({
+    enabled: false,
+    hiddenSegments: new Set(),
+    expandedPaths: new Set(),
+    maxDepth: 2,
   }));
 
   // Update selected files when uploadedFiles changes
@@ -126,6 +151,7 @@ export default function Home() {
               uploadedFiles={uploadedFiles}
               onRemoveFile={removeFile}
               isLoading={isLoading}
+              headerOrientation={headerOrientation}
             />
           </div>
         </aside>
@@ -188,13 +214,87 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Filter Controls */}
-                <div className="mb-4 bg-card border border-border rounded-lg overflow-hidden">
-                  <FilterControls
-                    uploadedFiles={uploadedFiles}
-                    filterSettings={filterSettings}
-                    onFilterChange={setFilterSettings}
-                  />
+                {/* Settings Section - Two Side-by-Side Cards */}
+                <div className="mb-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Card 1: Header Orientation, Sheet Selection, and Path Filtering */}
+                  <Collapsible open={isSettingsCardOpen} onOpenChange={setIsSettingsCardOpen}>
+                    <div className="bg-card border border-border rounded-lg overflow-hidden">
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-between px-4 py-3 h-auto hover:bg-muted/50"
+                        >
+                          <span className="font-medium">Settings</span>
+                          {isSettingsCardOpen ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="px-4 pb-4 space-y-4">
+                          <HeaderOrientationToggle
+                            orientation={headerOrientation}
+                            onChange={changeHeaderOrientation}
+                            disabled={isLoading || uploadedFiles.length === 0}
+                          />
+                          <SheetSelector
+                            uploadedFiles={uploadedFiles}
+                            selectedSheetIndex={selectedSheetIndex}
+                            selectedSheetName={selectedSheetName}
+                            sheetNameWarning={sheetNameWarning}
+                            onChange={changeSheetIndex}
+                            disabled={isLoading}
+                          />
+                          <div className="pt-2 border-t border-border">
+                            <PathFilterControls
+                              tableRows={tableRows}
+                              pathFilterSettings={pathFilterSettings}
+                              onSettingsChange={setPathFilterSettings}
+                            />
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
+
+                  {/* Card 2: Filter Controls */}
+                  <Collapsible open={isFiltersCardOpen} onOpenChange={setIsFiltersCardOpen}>
+                    <div className="bg-card border border-border rounded-lg overflow-hidden">
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-between px-4 py-3 h-auto hover:bg-muted/50"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">Filters</span>
+                            {filterSettings.selectedFileIds.size !== uploadedFiles.length ||
+                            filterSettings.fieldNameSearch !== '' ||
+                            filterSettings.fieldPresenceFilter !== 'all' ||
+                            filterSettings.fileSort !== 'none' ? (
+                              <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
+                                Active
+                              </span>
+                            ) : null}
+                          </div>
+                          {isFiltersCardOpen ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <FilterControls
+                          uploadedFiles={uploadedFiles}
+                          filterSettings={filterSettings}
+                          onFilterChange={setFilterSettings}
+                          headerOrientation={headerOrientation}
+                        />
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
                 </div>
 
                 {/* Table */}
@@ -204,6 +304,8 @@ export default function Home() {
                     uploadedFiles={uploadedFiles}
                     renameSettings={renameSettings}
                     filterSettings={filterSettings}
+                    pathFilterSettings={pathFilterSettings}
+                    onPathFilterSettingsChange={setPathFilterSettings}
                   />
                 </div>
               </div>

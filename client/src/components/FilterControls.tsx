@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Filter, ChevronDown, ChevronUp, X, Search, ArrowUpDown } from 'lucide-react';
+import { useMemo } from 'react';
+import { Filter, X, Search, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -11,12 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { UploadedFile } from '@/types';
+import { UploadedFile, HeaderOrientation } from '@/types';
 
 export interface FilterSettings {
   selectedFileIds: Set<string>;
@@ -30,14 +25,15 @@ interface FilterControlsProps {
   uploadedFiles: UploadedFile[];
   filterSettings: FilterSettings;
   onFilterChange: (settings: FilterSettings) => void;
+  headerOrientation: HeaderOrientation;
 }
 
 export default function FilterControls({
   uploadedFiles,
   filterSettings,
   onFilterChange,
+  headerOrientation,
 }: FilterControlsProps) {
-  const [isOpen, setIsOpen] = useState(true);
 
   const handleFileToggle = (fileId: string, checked: boolean) => {
     const newSelectedFileIds = new Set(filterSettings.selectedFileIds);
@@ -141,32 +137,7 @@ export default function FilterControls({
   }, [uploadedFiles, filterSettings.fileSort]);
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="border-b border-border bg-card">
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            className="w-full justify-between px-4 py-3 h-auto hover:bg-muted/50"
-          >
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4" />
-              <span className="font-medium">Filters</span>
-              {hasActiveFilters && (
-                <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                  Active
-                </span>
-              )}
-            </div>
-            {isOpen ? (
-              <ChevronUp className="w-4 h-4" />
-            ) : (
-              <ChevronDown className="w-4 h-4" />
-            )}
-          </Button>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <div className="px-4 pb-4 space-y-4">
+    <div className="px-4 pb-4 space-y-4">
             {/* File Selection */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -235,7 +206,7 @@ export default function FilterControls({
                         >
                           <div className="truncate">{file.name}</div>
                           <div className="text-xs text-muted-foreground">
-                            {file.headers.length} columns
+                            {file.headers.length} {headerOrientation === 'horizontal' ? 'columns' : 'rows'}
                           </div>
                         </Label>
                       </div>
@@ -327,10 +298,7 @@ export default function FilterControls({
                 Clear All Filters
               </Button>
             )}
-          </div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
+    </div>
   );
 }
 
